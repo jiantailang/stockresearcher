@@ -13,7 +13,7 @@ def calculate_rsi(series, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def analyze_stock(ticker_symbol):
+def analyze_stock(ticker_symbol, entry_price, status):
     st.markdown(f"### 🔍 銘柄コード: {ticker_symbol} の調査を開始します...")
     
     # --- ステップ1: 調査 (Research) ---
@@ -63,6 +63,35 @@ def analyze_stock(ticker_symbol):
     else:
         reason.append(f"RSIは {current_rsi:.2f} で、中立的な水準です。")
 
+    # --- ステップ4: ポジション分析 (Position Analysis) ---
+    position_advice = []
+    if entry_price > 0:
+        if status == "保有中 (エントリー済み)":
+            diff = current_price - entry_price
+            pct_change = (diff / entry_price) * 100
+            
+            if diff >= 0:
+                position_advice.append(f"💰 **含み益:** +${diff:.2f} (+{pct_change:.2f}%)")
+                if current_rsi > 70:
+                    position_advice.append("⚠️ RSIが高値圏(70超)です。利益確定を検討しても良いタイミングかもしれません。")
+                else:
+                    position_advice.append("✅ 利益が出ています。トレンド継続を期待しつつ、RSIの過熱感に注意しましょう。")
+            else:
+                position_advice.append(f"💸 **含み損:** ${diff:.2f} ({pct_change:.2f}%)")
+                if current_rsi < 30:
+                    position_advice.append("ℹ️ RSIが底値圏(30未満)です。反発を待つか、ナンピン買いの検討余地があるかもしれません。")
+                else:
+                    position_advice.append("⚠️ 損失が出ています。損切りラインに達していないか確認してください。")
+        
+        elif status == "検討中 (これからエントリー)":
+            if current_price > entry_price:
+                diff = current_price - entry_price
+                pct_diff = (diff / current_price) * 100
+                position_advice.append(f"📉 現在価格は希望額より **${diff:.2f} ({pct_diff:.2f}%) 高い**です。")
+                position_advice.append("⏳ 希望価格まで落ちてくるのを待つ「押し目待ち」の状態です。")
+            else:
+                position_advice.append("✅ 現在価格は希望額以下です。エントリーの好機かもしれません。")
+
     # --- 結果出力 (The Commander) ---
     st.divider()
     st.subheader(f"📢 分析結果レポート: {short_name} ({ticker_symbol})")
@@ -86,6 +115,12 @@ def analyze_stock(ticker_symbol):
     for r in reason:
         st.write(f"- {r}")
     
+    if position_advice:
+        st.subheader("🤔 ポジション分析 & アドバイス")
+        st.write(f"**設定:** {status} @ ${entry_price:.2f}")
+        for advice in position_advice:
+            st.write(f"- {advice}")
+
     # チャート表示
     st.subheader("📉 株価チャート (6ヶ月)")
     st.line_chart(hist['Close'])
@@ -94,7 +129,13 @@ if __name__ == "__main__":
     st.title("📈 米国株 AI アナライザー")
     st.write("分析したい米国株のティッカーシンボルを入力してください (例: NVDA, AAPL, MSFT)")
     
-    ticker = st.text_input("ティッカーシンボル", "").strip().upper()
+    col1, col2 = st.columns(2)
+    with col1:
+        ticker = st.text_input("ティッカーシンボル", "").strip().upper()
+    with col2:
+        entry_price = st.number_input("エントリー価格 (USD) ※0なら無視", min_value=0.0, value=0.0, step=0.1, format="%.2f")
+    
+    status = st.radio("現在のステータス", ("保有中 (エントリー済み)", "検討中 (これからエントリー)"), horizontal=True)
     
     if st.button("分析開始") and ticker:
-        analyze_stock(ticker)
+        analyze_stock(ticker, entry_price, status)
