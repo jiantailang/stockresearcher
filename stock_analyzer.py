@@ -1,6 +1,6 @@
 import yfinance as yf
 import pandas as pd
-import sys
+import streamlit as st
 from datetime import datetime
 
 def calculate_rsi(series, period=14):
@@ -14,9 +14,7 @@ def calculate_rsi(series, period=14):
     return rsi
 
 def analyze_stock(ticker_symbol):
-    print(f"\n{'='*50}")
-    print(f"🔍 銘柄コード: {ticker_symbol} の調査を開始します...")
-    print(f"{'='*50}")
+    st.markdown(f"### 🔍 銘柄コード: {ticker_symbol} の調査を開始します...")
     
     # --- ステップ1: 調査 (Research) ---
     try:
@@ -26,7 +24,7 @@ def analyze_stock(ticker_symbol):
         hist = stock.history(period="6mo")
         
         if hist.empty:
-            print(f"❌ エラー: データが見つかりませんでした。銘柄コード '{ticker_symbol}' を確認してください。")
+            st.error(f"❌ エラー: データが見つかりませんでした。銘柄コード '{ticker_symbol}' を確認してください。")
             return
 
         # 企業情報の取得
@@ -37,11 +35,11 @@ def analyze_stock(ticker_symbol):
         news = stock.news[:3] if stock.news else []
 
     except Exception as e:
-        print(f"❌ データ取得中にエラーが発生しました: {e}")
+        st.error(f"❌ データ取得中にエラーが発生しました: {e}")
         return
 
     # --- ステップ2: 分析 (Analysis) ---
-    print("📊 データを分析中...")
+    st.text("📊 データを分析中...")
 
     # A. テクニカル分析: RSI (14日)
     hist['RSI'] = calculate_rsi(hist['Close'])
@@ -66,37 +64,37 @@ def analyze_stock(ticker_symbol):
         reason.append(f"RSIは {current_rsi:.2f} で、中立的な水準です。")
 
     # --- 結果出力 (The Commander) ---
-    print(f"\n{'='*50}")
-    print(f"📢 分析結果レポート: {short_name} ({ticker_symbol})")
-    print(f"📅 日付: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'-'*50}")
+    st.divider()
+    st.subheader(f"📢 分析結果レポート: {short_name} ({ticker_symbol})")
+    st.text(f"📅 日付: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     
-    print(f"💰 現在価格: ${current_price:.2f}")
-    print(f"📈 RSI(14): {current_rsi:.2f}")
-    print(f"🌱 ESGスコア: {esg_score}")
-    print(f"🏢 予想PER: {forward_pe}")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("💰 現在価格", f"${current_price:.2f}")
+    col2.metric("📈 RSI(14)", f"{current_rsi:.2f}")
+    col3.metric("🌱 ESGスコア", f"{esg_score}")
+    col4.metric("🏢 予想PER", f"{forward_pe}")
     
-    print(f"\n📰 最新ニュース (ヘッドライン):")
+    st.subheader("📰 最新ニュース (ヘッドライン)")
     if news:
         for i, item in enumerate(news):
-            print(f"  {i+1}. {item.get('title', 'No Title')}")
+            st.markdown(f"- [{item.get('title', 'No Title')}]({item.get('link', '#')})")
     else:
-        print("  ニュースが見つかりませんでした。")
+        st.info("ニュースが見つかりませんでした。")
 
-    print(f"\n🤖 投資判断: 【 {decision} 】")
-    print("📝 理由:")
+    st.subheader(f"🤖 投資判断: 【 {decision} 】")
+    st.write("📝 **理由:**")
     for r in reason:
-        print(f"  - {r}")
-    print(f"{'='*50}\n")
+        st.write(f"- {r}")
+    
+    # チャート表示
+    st.subheader("📉 株価チャート (6ヶ月)")
+    st.line_chart(hist['Close'])
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        ticker = sys.argv[1]
-    else:
-        print("分析したい米国株のティッカーシンボルを入力してください (例: NVDA, AAPL, MSFT)")
-        ticker = input(">> ").strip().upper()
+    st.title("📈 米国株 AI アナライザー")
+    st.write("分析したい米国株のティッカーシンボルを入力してください (例: NVDA, AAPL, MSFT)")
     
-    if ticker:
+    ticker = st.text_input("ティッカーシンボル", "").strip().upper()
+    
+    if st.button("分析開始") and ticker:
         analyze_stock(ticker)
-    else:
-        print("銘柄コードが入力されませんでした。")
