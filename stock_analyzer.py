@@ -3,13 +3,20 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
-def calculate_rsi(series, period=14):
+# --- 定数定義 ---
+RSI_PERIOD = 14
+RSI_OVERSOLD = 30
+RSI_OVERBOUGHT = 70
+HISTORY_PERIOD = "6mo"
+
+def calculate_rsi(series, period=RSI_PERIOD):
     """RSI（相対力指数）を計算する関数"""
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     
-    rs = gain / loss
+    # 提案1: ゼロ除算を回避
+    rs = gain / loss.replace(0, 1e-10)
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
@@ -20,8 +27,8 @@ def analyze_stock(ticker_symbol, entry_price, status):
     try:
         stock = yf.Ticker(ticker_symbol)
         
-        # 直近6ヶ月のデータを取得
-        hist = stock.history(period="6mo")
+        # 株価データを取得 (提案2: 定数を使用)
+        hist = stock.history(period=HISTORY_PERIOD)
         
         if hist.empty:
             st.error(f"❌ エラー: データが見つかりませんでした。銘柄コード '{ticker_symbol}' を確認してください。")
@@ -42,7 +49,7 @@ def analyze_stock(ticker_symbol, entry_price, status):
     st.text("📊 データを分析中...")
 
     # A. テクニカル分析: RSI (14日)
-    hist['RSI'] = calculate_rsi(hist['Close'])
+    hist['RSI'] = calculate_rsi(hist['Close'], period=RSI_PERIOD)
     current_rsi = hist['RSI'].iloc[-1]
 
     # B. ファンダメンタル・ESG指標
@@ -54,43 +61,17 @@ def analyze_stock(ticker_symbol, entry_price, status):
     decision = "HOLD (様子見)"
     reason = []
 
-    if current_rsi < 30:
+    if current_rsi < RSI_OVERSOLD:
         decision = "BUY (買い検討)"
-        reason.append(f"RSIが {current_rsi:.2f} で、売られすぎ水準(30以下)です。反発の可能性があります。")
-    elif current_rsi > 70:
+        reason.append(f"RSIが {current_rsi:.2f} で、売られすぎ水準({RSI_OVERSOLD}以下)です。反発の可能性があります。")
+    elif current_rsi > RSI_OVERBOUGHT:
         decision = "SELL (売り検討)"
-        reason.append(f"RSIが {current_rsi:.2f} で、買われすぎ水準(70以上)です。過熱感があります。")
+        reason.append(f"RSIが {current_rsi:.2f} で、買われすぎ水準({RSI_OVERBOUGHT}以上)です。過熱感があります。")
     else:
         reason.append(f"RSIは {current_rsi:.2f} で、中立的な水準です。")
 
     # --- ステップ4: ポジション分析 (Position Analysis) ---
-    position_advice = []
-    if entry_price > 0:
-        if status == "保有中 (エントリー済み)":
-            diff = current_price - entry_price
-            pct_change = (diff / entry_price) * 100
-            
-            if diff >= 0:
-                position_advice.append(f"💰 **含み益:** +${diff:.2f} (+{pct_change:.2f}%)")
-                if current_rsi > 70:
-                    position_advice.append("⚠️ RSIが高値圏(70超)です。利益確定を検討しても良いタイミングかもしれません。")
-                else:
-                    position_advice.append("✅ 利益が出ています。トレンド継続を期待しつつ、RSIの過熱感に注意しましょう。")
-            else:
-                position_advice.append(f"💸 **含み損:** ${diff:.2f} ({pct_change:.2f}%)")
-                if current_rsi < 30:
-                    position_advice.append("ℹ️ RSIが底値圏(30未満)です。反発を待つか、ナンピン買いの検討余地があるかもしれません。")
-                else:
-                    position_advice.append("⚠️ 損失が出ています。損切りラインに達していないか確認してください。")
-        
-        elif status == "検討中 (これからエントリー)":
-            if current_price > entry_price:
-                diff = current_price - entry_price
-                pct_diff = (diff / current_price) * 100
-                position_advice.append(f"📉 現在価格は希望額より **${diff:.2f} ({pct_diff:.2f}%) 高い**です。")
-                position_advice.append("⏳ 希望価格まで落ちてくるのを待つ「押し目待ち」の状態です。")
-            else:
-                position_advice.append("✅ 現在価格は希望額以下です。エントリーの好機かもしれません。")
+    position_advice = _get_position_advice(status, entry_price, current_price, current_rsi)
 
     # --- 結果出力 (The Commander) ---
     st.divider()
@@ -121,9 +102,58 @@ def analyze_stock(ticker_symbol, entry_price, status):
         for advice in position_advice:
             st.write(f"- {advice}")
 
+    # 提案4: 詳細情報をExpander内に表示
+    with st.expander("詳細情報を表示..."):
+        col1_detail, col2_detail = st.columns(2)
+        with col1_detail:
+            st.write("**企業情報**")
+            st.text(f"セクター: {info.get('sector', 'N/A')}")
+            st.text(f"業種: {info.get('industry', 'N/A')}")
+            st.text(f"ウェブサイト: {info.get('website', 'N/A')}")
+        with col2_detail:
+            st.write("**市場データ**")
+            st.text(f"時価総額: {info.get('marketCap', 'N/A'):,}")
+            st.text(f"52週高値: {info.get('fiftyTwoWeekHigh', 'N/A')}")
+            st.text(f"52週安値: {info.get('fiftyTwoWeekLow', 'N/A')}")
+            st.text(f"配当利回り: {info.get('dividendYield', 0) * 100:.2f}%")
+
     # チャート表示
     st.subheader("📉 株価チャート (6ヶ月)")
     st.line_chart(hist['Close'])
+
+def _get_position_advice(status, entry_price, current_price, current_rsi):
+    """提案3: ポジション状況に応じたアドバイスを生成するヘルパー関数"""
+    position_advice = []
+    if entry_price <= 0:
+        return position_advice
+
+    if status == "保有中 (エントリー済み)":
+        diff = current_price - entry_price
+        pct_change = (diff / entry_price) * 100
+        
+        if diff >= 0:
+            position_advice.append(f"💰 **含み益:** +${diff:.2f} (+{pct_change:.2f}%)")
+            if current_rsi > RSI_OVERBOUGHT:
+                position_advice.append(f"⚠️ RSIが高値圏({RSI_OVERBOUGHT}超)です。利益確定を検討しても良いタイミングかもしれません。")
+            else:
+                position_advice.append("✅ 利益が出ています。トレンド継続を期待しつつ、RSIの過熱感に注意しましょう。")
+        else:
+            position_advice.append(f"💸 **含み損:** ${diff:.2f} ({pct_change:.2f}%)")
+            if current_rsi < RSI_OVERSOLD:
+                position_advice.append(f"ℹ️ RSIが底値圏({RSI_OVERSOLD}未満)です。反発を待つか、ナンピン買いの検討余地があるかもしれません。")
+            else:
+                position_advice.append("⚠️ 損失が出ています。損切りラインに達していないか確認してください。")
+    
+    elif status == "検討中 (これからエントリー)":
+        if current_price > entry_price:
+            diff = current_price - entry_price
+            pct_diff = (diff / entry_price) * 100 # 分母を希望価格に変更し、より直感的に
+            position_advice.append(f"📉 現在価格は希望額より **${diff:.2f} ({pct_diff:.2f}%) 高い**です。")
+            position_advice.append("⏳ 希望価格まで落ちてくるのを待つ「押し目待ち」の状態です。")
+        else:
+            position_advice.append("✅ 現在価格は希望額以下です。エントリーの好機かもしれません。")
+    
+    return position_advice
 
 if __name__ == "__main__":
     st.title("📈 米国株 AI アナライザー")
